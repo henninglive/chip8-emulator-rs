@@ -1,5 +1,7 @@
 use std::fmt::Debug;
 
+use rand::{rngs::StdRng, RngCore, SeedableRng};
+
 // https://github.com/JohnEarnest/Octo/blob/gh-pages/js/emulator.js
 
 const MEMORY_SIZE: usize = 0x1000;
@@ -39,8 +41,13 @@ pub enum Chip8Mode {
 //TODO: Bitflags
 #[derive(Clone, Copy, Debug)]
 struct Chip8Flags {
-    /// Shift 8XY6 and 8XYE behavior quirk: if true VY is copied into VX before shifting (COSMAC VIP)
-    shift_quirk: bool,
+    /// Bitwise shift (8XY6 and 8XYE) quirk: if true VY is copied into VX before shifting (COSMAC VIP)
+    quirk_shift: bool,
+    /// Jump with offset (BNNN/BXNN) quirk: Jump to the address XNN, plus the value in the register VX,
+    /// instead of the address NNN plus the value in the register V0
+    quirk_jump_with_offset: bool,
+    /// Store and load memory (FX55/FX65) quirk
+    quirk_inc_idx_load_store: bool,
     /// Debug mode: print debug info
     debug: bool,
 }
@@ -51,6 +58,8 @@ pub struct Chip8Builder<'a> {
     rom: Option<&'a [u8]>,
     /// Font sprite
     font: &'a [u8],
+    // PRNG Seed
+    rng_seed: Option<u64>,
     /// Flags
     flags: Chip8Flags,
 }
@@ -76,6 +85,8 @@ pub struct Chip8 {
     display: Vec<u32>,
     /// Flags
     flags: Chip8Flags,
+    /// PRNG Generator
+    rng: StdRng,
 }
 
 impl<'a> Chip8Builder<'a> {
@@ -83,8 +94,11 @@ impl<'a> Chip8Builder<'a> {
         Chip8Builder {
             rom: None,
             font: &DEFAULT_FONT[..],
+            rng_seed: None,
             flags: Chip8Flags {
-                shift_quirk: false,
+                quirk_shift: false,
+                quirk_jump_with_offset: false,
+                quirk_inc_idx_load_store: false,
                 debug: false,
             },
         }
@@ -108,10 +122,15 @@ impl<'a> Chip8Builder<'a> {
         self
     }
 
+    pub fn with_rng_seed<'b>(&'b mut self, seed: u64) -> &'b mut Self {
+        self.rng_seed = Some(seed);
+        self
+    }
+
     pub fn with_mode<'b>(&'b mut self, mode: Chip8Mode) -> &'b mut Self {
         match mode {
             Chip8Mode::COSMAC_VIP => {
-                self.flags.shift_quirk = true;
+                self.flags.quirk_shift = true;
             }
             _ => {}
         }
@@ -132,6 +151,12 @@ impl<'a> Chip8Builder<'a> {
         // Create display buffer
         let display = vec![0u32; SCREEN_WITDH * SCREEN_HEIGHT];
 
+        // Pseudo random number generator
+        let rng = match self.rng_seed {
+            Some(seed) => StdRng::seed_from_u64(seed),
+            None => StdRng::from_entropy(),
+        };
+
         Chip8 {
             regs: [0u8; 16],
             index: 0,
@@ -143,6 +168,7 @@ impl<'a> Chip8Builder<'a> {
             memory: memory,
             display: display,
             flags: self.flags,
+            rng: rng,
         }
     }
 }
@@ -178,6 +204,7 @@ impl Chip8 {
                 assert!(self.sp > 0, "Return called when stack is empty");
                 self.sp -= 1;
                 let prev = self.stack[self.sp as usize];
+                assert!(prev % 2 == 0, "Program counter must be 2 byte aligned");
                 self.pc = prev;
             }
             // 1NNN: Jump to memory location NNN
@@ -193,7 +220,9 @@ impl Chip8 {
                 }
 
                 // Set program counter to addr in Instruction
-                self.pc = u16::from_be_bytes(addr);
+                let pc = u16::from_be_bytes(addr);
+                assert!(pc % 2 == 0, "Program counter must be 2 byte aligned");
+                self.pc = pc;
             }
             // 2NNN: Call subroutine at memory location NNN
             (0x2, _, _, _) => {
@@ -343,14 +372,14 @@ impl Chip8 {
             // 8XY6: Shift VX to the right by 1 bit, optionaly copy VY to VX before shifting
             (0x8, _, _, 0x6) => {
                 if self.flags.debug {
-                    if self.flags.shift_quirk {
+                    if self.flags.quirk_shift {
                         println!("0x{:02x}{:02x}: SHR V{:x} V{:x}", inst[0], inst[1], n2, n3);
                     } else {
                         println!("0x{:02x}{:02x}: SHR V{:x}", inst[0], inst[1], n2);
                     }
                 }
 
-                if self.flags.shift_quirk {
+                if self.flags.quirk_shift {
                     self.regs[n2 as usize] = self.regs[n3 as usize]
                 }
 
@@ -372,14 +401,14 @@ impl Chip8 {
             // 8XYE: Shift VX to the left by 1bit, optionaly copy VY to VX before shifting
             (0x8, _, _, 0xE) => {
                 if self.flags.debug {
-                    if self.flags.shift_quirk {
+                    if self.flags.quirk_shift {
                         println!("0x{:02x}{:02x}: SHL V{:x} V{:x}", inst[0], inst[1], n2, n3);
                     } else {
                         println!("0x{:02x}{:02x}: SHL V{:x}", inst[0], inst[1], n2);
                     }
                 }
 
-                if self.flags.shift_quirk {
+                if self.flags.quirk_shift {
                     self.regs[n2 as usize] = self.regs[n3 as usize]
                 }
 
@@ -415,6 +444,85 @@ impl Chip8 {
                 }
 
                 self.index = u16::from_be_bytes(idx);
+                self.pc += 2;
+            }
+            // BNNN/BXNN: Jump with offset
+            // Jump to address NNN plus the value in the register V0 (COSMAC VIP),
+            // (optionally) ump to the address XNN plus the value in the register VX
+            (0xB, _, _, _) => {
+                let mut addr: [u8; 2] = inst;
+                addr[0] &= 0x0f;
+
+                if self.flags.debug {
+                    if self.flags.quirk_jump_with_offset {
+                        println!(
+                            "0x{:02x}{:02x}: JMP 0x{:02x}{:02x} V0",
+                            inst[0], inst[1], addr[0], addr[1]
+                        );
+                    } else {
+                        println!(
+                            "0x{:02x}{:02x}: JMP 0x{:02x}{:02x} V{:x}",
+                            inst[0], inst[1], addr[0], addr[1], n2
+                        );
+                    }
+                }
+
+                let offset = if self.flags.quirk_jump_with_offset {
+                    self.regs[n2 as usize]
+                } else {
+                    self.regs[0]
+                };
+
+                // Set program counter to addr in Instruction
+                let pc = u16::from_be_bytes(addr) + offset as u16;
+                assert!(pc % 2 == 0, "Program counter must be 2 byte aligned");
+                self.pc = pc;
+            }
+            // CXNN: Random - generates a random number and AND it with the value NN, and puts the result in VX
+            (0xC, _, _, _) => {
+                if self.flags.debug {
+                    println!(
+                        "0x{:02x}{:02x}: RNG V{:x} 0x{:02x}",
+                        inst[0], inst[1], n2, inst[1]
+                    );
+                }
+
+                let n = self.rng.next_u32() as u8;
+                self.regs[n2 as usize] = n & inst[1];
+                self.pc += 2;
+            }
+            // FX55: Store - Store of each register from V0-VX at memory addresses starting at I until I + X
+            (0xF, _, 0x5, 0x5) => {
+                if self.flags.debug {
+                    println!("0x{:02x}{:02x}: STORE V{:x}", inst[0], inst[1], n2,);
+                }
+
+                for i in 0..=n2 {
+                    let addr = self.index + i as u16;
+                    self.write_u8(addr, self.regs[i as usize]);
+                }
+
+                if self.flags.quirk_inc_idx_load_store {
+                    self.index += n2 as u16;
+                }
+
+                self.pc += 2;
+            }
+            // FX65: Load - Load of each register from V0-VX from memory addresses starting at I until I + X
+            (0xF, _, 0x6, 0x5) => {
+                if self.flags.debug {
+                    println!("0x{:02x}{:02x}: LOAD V{:x}", inst[0], inst[1], n2,);
+                }
+
+                for i in 0..=n2 {
+                    let addr: u16 = self.index + i as u16;
+                    self.regs[i as usize] = self.read_u8(addr);
+                }
+
+                if self.flags.quirk_inc_idx_load_store {
+                    self.index += n2 as u16;
+                }
+
                 self.pc += 2;
             }
             _ => panic!(
@@ -510,6 +618,7 @@ mod tests {
     fn setup(rom: &[u8]) -> Chip8 {
         Chip8Builder::new()
             .with_rom(&rom[..])
+            .with_rng_seed(310349960114u64)
             .with_debug(true)
             .build()
     }
@@ -575,7 +684,7 @@ mod tests {
     #[test]
     fn test_jump_1() {
         // Arrange: Setup chip8 emulator
-        let mut chip = setup(&[0x1F, 0xFF]);
+        let mut chip = setup(&[0x1F, 0xF0]);
 
         // Act: Step CPU Instruction
         chip.step();
@@ -583,7 +692,7 @@ mod tests {
         // Assert: CPU state
         assert_regs(&chip, &[]);
         assert_eq!(chip.index, 0);
-        assert_eq!(chip.pc, 0xFFF);
+        assert_eq!(chip.pc, 0xFF0);
         assert_stack(&chip, &[]);
     }
 
@@ -950,7 +1059,7 @@ mod tests {
     fn test_shr_3() {
         // Arrange: Setup chip8 emulator
         let mut chip = setup(&[0x81, 0x26]);
-        chip.flags.shift_quirk = true;
+        chip.flags.quirk_shift = true;
         chip.regs[0x1] = 0x44;
         chip.regs[0x2] = 0xFF;
 
@@ -1051,7 +1160,7 @@ mod tests {
     fn test_shl_3() {
         // Arrange: Setup chip8 emulator
         let mut chip = setup(&[0x81, 0x2E]);
-        chip.flags.shift_quirk = true;
+        chip.flags.quirk_shift = true;
         chip.regs[0x1] = 0x44;
         chip.regs[0x2] = 0xFF;
 
@@ -1112,5 +1221,90 @@ mod tests {
         assert_eq!(chip.index, 0x0BCD);
         assert_eq!(chip.pc, 0x0202);
         assert_stack(&chip, &[]);
+    }
+
+    #[test]
+    fn test_jmp_with_offset_1() {
+        // Arrange: Setup chip8 emulator
+        let mut chip = setup(&[0xB4, 0x00]);
+        chip.regs[0x0] = 0xF0;
+
+        // Act: Step CPU Instruction
+        chip.step();
+
+        // Assert: CPU State
+        assert_regs(&chip, &[(0x0, 0xF0)]);
+        assert_eq!(chip.index, 0);
+        assert_eq!(chip.pc, 0x04F0);
+        assert_stack(&chip, &[]);
+    }
+
+    #[test]
+    fn test_jmp_with_offset_2() {
+        // Arrange: Setup chip8 emulator
+        let mut chip = setup(&[0xB4, 0x00]);
+        chip.flags.quirk_jump_with_offset = true;
+        chip.regs[0x4] = 0xF0;
+
+        // Act: Step CPU Instruction
+        chip.step();
+
+        // Assert: CPU State
+        assert_regs(&chip, &[(0x4, 0xF0)]);
+        assert_eq!(chip.index, 0);
+        assert_eq!(chip.pc, 0x04F0);
+        assert_stack(&chip, &[]);
+    }
+
+    #[test]
+    fn test_rng() {
+        // Arrange: Setup chip8 emulator
+        let mut chip = setup(&[0xC0, 0xFF, 0xC1, 0xFF, 0xC2, 0xFF, 0xC3, 0x0]);
+
+        // Act: Step CPU Instruction
+        for _ in 0..4 {
+            chip.step();
+        }
+
+        // Assert: CPU State
+        assert_regs(&chip, &[(0x0, 0x30), (0x1, 0xDB), (0x2, 0xA1)]);
+        assert_eq!(chip.index, 0);
+        assert_eq!(chip.pc, 0x208);
+        assert_stack(&chip, &[]);
+    }
+
+    #[test]
+    fn test_store_1() {
+        // Arrange: Setup chip8 emulator
+        let mut chip = setup(&[0xFF, 0x55]);
+        chip.index = 0x400;
+        for r in 0u8..=6 {
+            chip.regs[r as usize] = r * 2;
+        }
+
+        // Act: Step CPU Instruction
+        chip.step();
+
+        // Assert: CPU State
+        assert_regs(
+            &chip,
+            &[
+                (0x0, 0x0),
+                (0x1, 0x02),
+                (0x2, 0x04),
+                (0x3, 0x06),
+                (0x4, 0x8),
+                (0x5, 0xA),
+                (0x6, 0xC),
+            ],
+        );
+        assert_eq!(chip.index, 0x400);
+        assert_eq!(chip.pc, 0x202);
+        assert_stack(&chip, &[]);
+
+        // Assert memory
+        for r in 0u8..=6 {
+            assert_eq!(r * 2, chip.read_u8(0x400 + r as u16))
+        }
     }
 }

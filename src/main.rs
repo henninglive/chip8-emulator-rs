@@ -10,7 +10,16 @@ fn main() {
         .with_debug(true)
         .build();
 
-    loop {
+    for _ in 0..25 {
         chip.step();
+    }
+
+    for y in 0..32 {
+        for x in 0..64 {
+            let i = y * 64 + x;
+            let pxl = if chip.display[i] > 0 {'█'} else {' '};
+            print!("{}", pxl);
+        }
+        println!();
     }
 }

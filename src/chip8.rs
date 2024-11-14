@@ -1,8 +1,14 @@
+// CHIP-8 emulator 
+//
+// Useful links:
+// * [Guide to making a CHIP-8 emulator](https://tobiasvl.github.io/blog/write-a-chip-8-emulator/)
+// * [Building a CHIP-8 Emulator](https://austinmorlan.com/posts/chip8_emulator/)
+// * [high-level assembler for the Chip8 virtual machine](https://github.com/JohnEarnest/Octo/blob/gh-pages/js/emulator.js)
+// 
+
 use std::fmt::Debug;
 
 use rand::{rngs::StdRng, RngCore, SeedableRng};
-
-// https://github.com/JohnEarnest/Octo/blob/gh-pages/js/emulator.js
 
 const MEMORY_SIZE: usize = 0x1000;
 const SCREEN_WITDH: usize = 64;
@@ -43,10 +49,10 @@ pub enum Chip8Mode {
 struct Chip8Flags {
     /// Bitwise shift (8XY6 and 8XYE) quirk: if true VY is copied into VX before shifting (COSMAC VIP)
     quirk_shift: bool,
-    /// Jump with offset (BNNN/BXNN) quirk: Jump to the address XNN, plus the value in the register VX,
-    /// instead of the address NNN plus the value in the register V0
+    /// Jump with offset (BNNN/BXNN) quirk: Jump to the address XNN plus the value in the register VX (CHIP-48 and SUPER-CHIP),
+    /// instead of the address NNN plus the value in the register V0 (COSMAC VIP)
     quirk_jump_with_offset: bool,
-    /// Store and load memory (FX55/FX65) quirk
+    /// Store and load memory (FX55/FX65) quirk: Increment I register while loading and storing registers ( COSMAC VIP)
     quirk_inc_idx_load_store: bool,
     /// Debug mode: print debug info
     debug: bool,
@@ -82,7 +88,7 @@ pub struct Chip8 {
     /// Memory
     memory: Vec<u8>,
     /// Display: 64x32 pixels 1 bit monochrome stored as RBG24 for SDL compatibility
-    display: Vec<u32>,
+    pub display: Vec<u32>,
     /// Flags
     flags: Chip8Flags,
     /// PRNG Generator
@@ -491,6 +497,56 @@ impl Chip8 {
                 self.regs[n2 as usize] = n & inst[1];
                 self.pc += 2;
             }
+            // DXYN: Display - draw an N pixels tall sprite from the memory location that the I index register
+            // is holding to the screen, at the horizontal X coordinate in VX and the Y coordinate in VY
+            (0xD, _, _, _) => {
+                if self.flags.debug {
+                    println!(
+                        "0x{:02x}{:02x}: Display V{:x} V{:x} {:x}",
+                        inst[0], inst[1], n2, n3, n4
+                    );
+                }
+
+                let mut y: u8 = self.regs[n3 as usize] % SCREEN_HEIGHT as u8;
+                let mut x = self.regs[n2 as usize] % SCREEN_WITDH as u8;
+
+                self.regs[0xF] = 0;
+
+                for n in 0..n4 {
+                    if y >= SCREEN_HEIGHT as u8 {
+                        break;
+                    } 
+
+                    let addr = self.index + n as u16;
+                    let data = self.read_u8(addr);
+
+                    println!("\tn={} y={} addr=0x{:x} data=0b{:b}", n, y + n, addr, data);
+
+                    for i in 0..8 {
+                        if x >= SCREEN_WITDH as u8 {
+                            break;
+                        } 
+
+                        let mask = 1 << (7 - i);
+                        if (data & mask) > 0 {
+                            if self.get_pixel_xy(x + i, y + n) {
+                                self.set_pixel_xy(x + i, y + n, false);
+                                self.regs[0xF] = 1;
+                            } else {
+                                self.set_pixel_xy(x + i, y + n, true);
+                            }
+                        }
+
+                        println!("\t\ti={} x={} b={}", i, x + i, (data & mask) > 0);
+
+
+                        //x += 1;
+                    }
+                    //y += 1;
+                }
+
+                self.pc += 2;
+            }
             // FX55: Store - Store of each register from V0-VX at memory addresses starting at I until I + X
             (0xF, _, 0x5, 0x5) => {
                 if self.flags.debug {
@@ -579,6 +635,19 @@ impl Chip8 {
     fn set_pixel_idx(&mut self, idx: usize, on_off: bool) {
         let pxl = if on_off { PIXEL_ON } else { PIXEL_OFF };
         self.display[idx] = pxl;
+    }
+
+    fn flip_pixel_xy(&mut self, x: u8, y: u8) {
+        let idx = (y as usize) * SCREEN_WITDH + (x as usize);
+        self.flip_pixel_idx(idx);
+    }
+
+    fn flip_pixel_idx(&mut self, idx: usize) {
+        if (self.display[idx] == PIXEL_ON) {
+            self.display[idx] = PIXEL_OFF
+        } else {
+            self.display[idx] = PIXEL_ON
+        }
     }
 
     fn clear_screen(&mut self, on_off: bool) {
@@ -1278,9 +1347,10 @@ mod tests {
         // Arrange: Setup chip8 emulator
         let mut chip = setup(&[0xFF, 0x55]);
         chip.index = 0x400;
-        for r in 0u8..=6 {
-            chip.regs[r as usize] = r * 2;
-        }
+        chip.regs[0x2] = 0x22;
+        chip.regs[0x4] = 0x44;
+        chip.regs[0xA] = 0xAA;
+        chip.regs[0xF] = 0xFF;
 
         // Act: Step CPU Instruction
         chip.step();
@@ -1289,13 +1359,10 @@ mod tests {
         assert_regs(
             &chip,
             &[
-                (0x0, 0x0),
-                (0x1, 0x02),
-                (0x2, 0x04),
-                (0x3, 0x06),
-                (0x4, 0x8),
-                (0x5, 0xA),
-                (0x6, 0xC),
+                (0x2, 0x22),
+                (0x4, 0x44),
+                (0xA, 0xAA),
+                (0xF, 0xFF),
             ],
         );
         assert_eq!(chip.index, 0x400);
@@ -1303,8 +1370,101 @@ mod tests {
         assert_stack(&chip, &[]);
 
         // Assert memory
-        for r in 0u8..=6 {
-            assert_eq!(r * 2, chip.read_u8(0x400 + r as u16))
-        }
+        assert_eq!(0x22, chip.read_u8(0x402));
+        assert_eq!(0x44, chip.read_u8(0x404));
+        assert_eq!(0xAA, chip.read_u8(0x40A));
+        assert_eq!(0xFF, chip.read_u8(0x40F));
+    }
+
+    #[test]
+    fn test_store_2() {
+        // Arrange: Setup chip8 emulator
+        let mut chip = setup(&[0xFF, 0x55]);
+        chip.flags.quirk_inc_idx_load_store = true;
+        chip.index = 0x400;
+        chip.regs[0x2] = 0x22;
+        chip.regs[0x4] = 0x44;
+        chip.regs[0xA] = 0xAA;
+        chip.regs[0xF] = 0xFF;
+
+        // Act: Step CPU Instruction
+        chip.step();
+
+        // Assert: CPU State
+        assert_regs(
+            &chip,
+            &[
+                (0x2, 0x22),
+                (0x4, 0x44),
+                (0xA, 0xAA),
+                (0xF, 0xFF),
+            ],
+        );
+        assert_eq!(chip.index, 0x40F);
+        assert_eq!(chip.pc, 0x202);
+        assert_stack(&chip, &[]);
+
+        // Assert memory
+        assert_eq!(0x22, chip.read_u8(0x402));
+        assert_eq!(0x44, chip.read_u8(0x404));
+        assert_eq!(0xAA, chip.read_u8(0x40A));
+        assert_eq!(0xFF, chip.read_u8(0x40F));
+    }
+
+    #[test]
+    fn test_load_1() {
+        // Arrange: Setup chip8 emulator
+        let mut chip = setup(&[0xFF, 0x65]);
+        chip.flags.quirk_inc_idx_load_store = true;
+        chip.index = 0x400;
+        chip.memory[0x402] = 0x22;
+        chip.memory[0x404] = 0x44;
+        chip.memory[0x40A] = 0xAA;
+        chip.memory[0x40F] = 0xFF;
+
+        // Act: Step CPU Instruction
+        chip.step();
+
+        // Assert: CPU State
+        assert_regs(
+            &chip,
+            &[
+                (0x2, 0x22),
+                (0x4, 0x44),
+                (0xA, 0xAA),
+                (0xF, 0xFF),
+            ],
+        );
+        assert_eq!(chip.index, 0x40F);
+        assert_eq!(chip.pc, 0x202);
+        assert_stack(&chip, &[]);
+    }
+
+    #[test]
+    fn test_load_2() {
+        // Arrange: Setup chip8 emulator
+        let mut chip = setup(&[0xFF, 0x65]);
+        chip.index = 0x400;
+        chip.memory[0x402] = 0x22;
+        chip.memory[0x404] = 0x44;
+        chip.memory[0x40A] = 0xAA;
+        chip.memory[0x40F] = 0xFF;
+
+        // Act: Step CPU Instruction
+        chip.step();
+
+        // Assert: CPU State
+        assert_regs(
+            &chip,
+            &[
+                (0x2, 0x22),
+                (0x4, 0x44),
+                (0xA, 0xAA),
+                (0xF, 0xFF),
+            ],
+        );
+        assert_eq!(chip.index, 0x400);
+        assert_eq!(chip.pc, 0x202);
+        assert_stack(&chip, &[]);
     }
 }

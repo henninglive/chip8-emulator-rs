@@ -15,10 +15,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
-name = "chip-8-emulator"
+name = "chip-8-core"
 version = "0.1.0"
 dependencies = [
  "rand",
+]
+
+[[package]]
+name = "chip-8-frontend"
+version = "0.1.0"
+dependencies = [
+ "chip-8-core",
 ]
 
 [[package]]
@@ -34,9 +41,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.162"
+version = "0.2.164"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18d287de67fe55fd7e1581fe933d965a5a9477b38e949cfa9f8574ef01506398"
+checksum = "433bfe06b8c75da9b2e3fbea6e5329ff87748f0b144ef75306e674c3f6f7c13f"
 
 [[package]]
 name = "ppv-lite86"

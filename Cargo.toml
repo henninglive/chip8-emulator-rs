@@ -1,7 +1,6 @@
-[package]
-name = "chip-8-emulator"
-version = "0.1.0"
-edition = "2021"
+[workspace]
 
-[dependencies]
-rand = "0.8"
+members = [
+    "core",
+    "frontend"
+]

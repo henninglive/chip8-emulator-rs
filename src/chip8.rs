@@ -507,42 +507,45 @@ impl Chip8 {
                     );
                 }
 
-                let mut y: u8 = self.regs[n3 as usize] % SCREEN_HEIGHT as u8;
-                let mut x = self.regs[n2 as usize] % SCREEN_WITDH as u8;
+                // Origin where we start to draw
+                let oy: u8 = self.regs[n3 as usize] % SCREEN_HEIGHT as u8;
+                let ox: u8 = self.regs[n2 as usize] % SCREEN_WITDH as u8;
 
+                // Reset carry flag
                 self.regs[0xF] = 0;
 
-                for n in 0..n4 {
+                // Draw N rows 
+                for row in 0..n4 {
+                    let y =  oy + row;
                     if y >= SCREEN_HEIGHT as u8 {
                         break;
                     } 
 
-                    let addr = self.index + n as u16;
+                    // Read row(8-bit) of sprite data from memory
+                    let addr = self.index + row as u16;
                     let data = self.read_u8(addr);
 
-                    println!("\tn={} y={} addr=0x{:x} data=0b{:b}", n, y + n, addr, data);
-
-                    for i in 0..8 {
+                    for column in 0..8 {
+                        let x = ox + column;
                         if x >= SCREEN_WITDH as u8 {
                             break;
                         } 
 
-                        let mask = 1 << (7 - i);
+                        // bitmask git single bit
+                        let mask = 1 << (7 - column);
+
+                        // If sprite bit for column is on
                         if (data & mask) > 0 {
-                            if self.get_pixel_xy(x + i, y + n) {
-                                self.set_pixel_xy(x + i, y + n, false);
+                            // if pixel is on, turn it of and set carry flag
+                            if self.get_pixel_xy(x, y ) {
+                                self.set_pixel_xy(x, y, false);
                                 self.regs[0xF] = 1;
                             } else {
-                                self.set_pixel_xy(x + i, y + n, true);
+                                // else turn it on 
+                                self.set_pixel_xy(x, y, true);
                             }
                         }
-
-                        println!("\t\ti={} x={} b={}", i, x + i, (data & mask) > 0);
-
-
-                        //x += 1;
                     }
-                    //y += 1;
                 }
 
                 self.pc += 2;

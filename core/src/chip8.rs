@@ -676,16 +676,12 @@ mod tests {
         );
     }
 
-    fn assert_regs(chip: &Chip8, non_zero_regs: &[(u8, u8)]) {
+    fn assert_regs<F: Fn(u8) -> u8>(chip: &Chip8, predicate: F) {
         for reg in 0..16u8 {
-            let expected = non_zero_regs
-                .iter()
-                .find(|v| v.0 == reg)
-                .map(|v| v.1)
-                .unwrap_or(0);
+            let expected = predicate(reg);
             assert_eq!(
                 chip.regs[reg as usize], expected,
-                "Expected register 0x{:x} to contain 0x{:02x}",
+                "Expected register 0x{:x} to contain 0x{:x}",
                 reg, expected
             );
         }
@@ -756,7 +752,7 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[]);
+        assert_regs(&chip, |_| 0x0);
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_eq!(chip.display_dirty, true);
@@ -775,7 +771,7 @@ mod tests {
         chip.step();
 
         // Assert: CPU state
-        assert_regs(&chip, &[]);
+        assert_regs(&chip, |_| 0x0);
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0xFF0);
         assert_stack(&chip, &[]);
@@ -790,7 +786,7 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[]);
+        assert_regs(&chip, |_| 0x0);
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0xAB0);
         assert_stack(&chip, &[]);
@@ -809,7 +805,7 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[]);
+        assert_regs(&chip, |_| 0x0);
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0xabba);
         assert_stack(&chip, &[]);
@@ -824,7 +820,7 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[]);
+        assert_regs(&chip, |_| 0x0);
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x0ABA);
         assert_stack(&chip, &[0x200]);
@@ -839,7 +835,7 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[]);
+        assert_regs(&chip, |_| 0x0);
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x0202);
         assert_stack(&chip, &[]);
@@ -855,7 +851,10 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x0, 0xAA)]);
+        assert_regs(&chip, |reg| match reg {
+            0x0 => 0xAA,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x0204);
         assert_stack(&chip, &[]);
@@ -872,7 +871,11 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0xA, 0xDD), (0xB, 0xDD)]);
+        assert_regs(&chip, |reg| match reg {
+            0xA => 0xDD,
+            0xB => 0xDD,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x0204);
         assert_stack(&chip, &[]);
@@ -889,7 +892,11 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0xA, 0xCC), (0xB, 0xDD)]);
+        assert_regs(&chip, |reg| match reg {
+            0xA => 0xCC,
+            0xB => 0xDD,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x0202);
         assert_stack(&chip, &[]);
@@ -904,7 +911,7 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[]);
+        assert_regs(&chip, |_| 0x0);
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x0204);
         assert_stack(&chip, &[]);
@@ -920,7 +927,10 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x1, 0xAA)]);
+        assert_regs(&chip, |reg| match reg {
+            0x1 => 0xAA,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x0202);
         assert_stack(&chip, &[]);
@@ -935,7 +945,10 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x4, 0xAB)]);
+        assert_regs(&chip, |reg| match reg {
+            0x4 => 0xAB,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -950,7 +963,10 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x0, 0xAB)]);
+        assert_regs(&chip, |reg| match reg {
+            0x0 => 0xAB,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -966,7 +982,10 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x9, 0x65)]);
+        assert_regs(&chip, |reg| match reg {
+            0x9 => 0x65,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -983,7 +1002,11 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x1, 0xFF), (0x2, 0x0F)]);
+        assert_regs(&chip, |reg| match reg {
+            0x1 => 0xFF,
+            0x2 => 0x0F,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1000,7 +1023,11 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x2, 0x01), (0x3, 0x0F)]);
+        assert_regs(&chip, |reg| match reg {
+            0x2 => 0x01,
+            0x3 => 0x0F,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1017,7 +1044,11 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x3, 0x11), (0x4, 0xBA)]);
+        assert_regs(&chip, |reg| match reg {
+            0x3 => 0x11,
+            0x4 => 0xBA,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1034,7 +1065,11 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x4, 0xDA), (0x5, 0x4F)]);
+        assert_regs(&chip, |reg| match reg {
+            0x4 => 0xDA,
+            0x5 => 0x4F,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1051,7 +1086,12 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x4, 0x01), (0x5, 0x02), (0xF, 0x01)]);
+        assert_regs(&chip, |reg| match reg {
+            0x4 => 0x01,
+            0x5 => 0x02,
+            0xF => 0x01,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1068,7 +1108,12 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x1, 0x11), (0x2, 0xEE), (0xF, 0x1)]);
+        assert_regs(&chip, |reg| match reg {
+            0x1 => 0x11,
+            0x2 => 0xEE,
+            0xF => 0x1,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1085,7 +1130,12 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x1, 0x0), (0x2, 0xFF), (0xF, 0x1)]);
+        assert_regs(&chip, |reg| match reg {
+            0x1 => 0x0,
+            0x2 => 0xFF,
+            0xF => 0x1,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1102,7 +1152,11 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x1, 0xEF), (0x2, 0xFF), (0xF, 0x0)]);
+        assert_regs(&chip, |reg| match reg {
+            0x1 => 0xEF,
+            0x2 => 0xFF,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1118,7 +1172,10 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x1, 0x4)]);
+        assert_regs(&chip, |reg| match reg {
+            0x1 => 0x4,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1134,7 +1191,11 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x1, 0xFE), (0xF, 0x1)]);
+        assert_regs(&chip, |reg| match reg {
+            0x1 => 0xFE,
+            0xF => 0x1,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1152,7 +1213,12 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x1, 0xFE), (0x2, 0xFF), (0xF, 0x1)]);
+        assert_regs(&chip, |reg| match reg {
+            0x1 => 0xFE,
+            0x2 => 0xFF,
+            0xF => 0x1,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1169,7 +1235,12 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x1, 0x11), (0x2, 0xFF), (0xF, 0x1)]);
+        assert_regs(&chip, |reg| match reg {
+            0x1 => 0x11,
+            0x2 => 0xFF,
+            0xF => 0x1,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1186,7 +1257,11 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x1, 0x0), (0x2, 0xFF), (0xF, 0x1)]);
+        assert_regs(&chip, |reg| match reg {
+            0x2 => 0xFF,
+            0xF => 0x1,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1203,7 +1278,11 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x1, 0xEF), (0x2, 0xEE), (0xF, 0x0)]);
+        assert_regs(&chip, |reg| match reg {
+            0x1 => 0xEF,
+            0x2 => 0xEE,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1219,7 +1298,10 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x1, 0x1)]);
+        assert_regs(&chip, |reg| match reg {
+            0x1 => 0x1,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1235,7 +1317,11 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x1, 0x7F), (0xF, 0x1)]);
+        assert_regs(&chip, |reg| match reg {
+            0x1 => 0x7F,
+            0xF => 0x1,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1253,7 +1339,12 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x1, 0x7F), (0x2, 0xFF), (0xF, 0x1)]);
+        assert_regs(&chip, |reg| match reg {
+            0x1 => 0x7F,
+            0x2 => 0xFF,
+            0xF => 0x1,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1270,7 +1361,11 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0xA, 0xDD), (0xB, 0xDD)]);
+        assert_regs(&chip, |reg| match reg {
+            0xA => 0xDD,
+            0xB => 0xDD,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x0202);
         assert_stack(&chip, &[]);
@@ -1287,7 +1382,11 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0xA, 0xCC), (0xB, 0xDD)]);
+        assert_regs(&chip, |reg| match reg {
+            0xA => 0xCC,
+            0xB => 0xDD,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x0204);
         assert_stack(&chip, &[]);
@@ -1302,7 +1401,7 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[]);
+        assert_regs(&chip, |_| 0x0);
         assert_eq!(chip.index, 0x0BCD);
         assert_eq!(chip.pc, 0x0202);
         assert_stack(&chip, &[]);
@@ -1318,7 +1417,10 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x0, 0xF0)]);
+        assert_regs(&chip, |reg| match reg {
+            0x0 => 0xF0,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x04F0);
         assert_stack(&chip, &[]);
@@ -1335,7 +1437,10 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x4, 0xF0)]);
+        assert_regs(&chip, |reg| match reg {
+            0x4 => 0xF0,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x04F0);
         assert_stack(&chip, &[]);
@@ -1352,7 +1457,12 @@ mod tests {
         }
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x0, 0x30), (0x1, 0xDB), (0x2, 0xA1)]);
+        assert_regs(&chip, |reg| match reg {
+            0x0 => 0x30,
+            0x1 => 0xDB,
+            0x2 => 0xA1,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x208);
         assert_stack(&chip, &[]);
@@ -1360,7 +1470,6 @@ mod tests {
 
     #[test]
     fn test_display_1() {
-
         // Arrange: Setup chip8 emulator
         let mut chip = setup(&[0xD0, 0x00]);
         chip.index = 0x400;
@@ -1370,7 +1479,7 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[]);
+        assert_regs(&chip, |_| 0x0);
         assert_eq!(chip.index, 0x400);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1392,7 +1501,7 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[]);
+        assert_regs(&chip, |_| 0x0);
         assert_eq!(chip.index, 0x400);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1417,7 +1526,11 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x1, 0x1), (0xF, 0x1)]);
+        assert_regs(&chip, |reg| match reg {
+            0x1 => 0x1,
+            0xF => 0x1,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0x400);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1443,7 +1556,13 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x2, 0x22), (0x4, 0x44), (0xA, 0xAA), (0xF, 0xFF)]);
+        assert_regs(&chip, |reg| match reg {
+            0x2 => 0x22,
+            0x4 => 0x44,
+            0xA => 0xAA,
+            0xF => 0xFF,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0x400);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1470,7 +1589,13 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x2, 0x22), (0x4, 0x44), (0xA, 0xAA), (0xF, 0xFF)]);
+        assert_regs(&chip, |reg| match reg {
+            0x2 => 0x22,
+            0x4 => 0x44,
+            0xA => 0xAA,
+            0xF => 0xFF,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0x40F);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1497,7 +1622,13 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x2, 0x22), (0x4, 0x44), (0xA, 0xAA), (0xF, 0xFF)]);
+        assert_regs(&chip, |reg| match reg {
+            0x2 => 0x22,
+            0x4 => 0x44,
+            0xA => 0xAA,
+            0xF => 0xFF,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0x40F);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1517,7 +1648,13 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(&chip, &[(0x2, 0x22), (0x4, 0x44), (0xA, 0xAA), (0xF, 0xFF)]);
+        assert_regs(&chip, |reg| match reg {
+            0x2 => 0x22,
+            0x4 => 0x44,
+            0xA => 0xAA,
+            0xF => 0xFF,
+            _ => 0x0,
+        });
         assert_eq!(chip.index, 0x400);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);

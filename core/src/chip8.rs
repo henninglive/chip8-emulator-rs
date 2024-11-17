@@ -6,15 +6,13 @@
 // * [high-level assembler for the Chip8 virtual machine](https://github.com/JohnEarnest/Octo/blob/gh-pages/js/emulator.js)
 // 
 
-use std::fmt::Debug;
-
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 const MEMORY_SIZE: usize = 0x1000;
-const SCREEN_WITDH: usize = 64;
-const SCREEN_HEIGHT: usize = 32;
+pub const SCREEN_WITDH: usize = 64;
+pub const SCREEN_HEIGHT: usize = 32;
 
-const PIXEL_ON: u32 = 0xFFFFFF;
+const PIXEL_ON: u32 = 0xFFFFFFFF;
 const PIXEL_OFF: u32 = 0;
 
 pub static DEFAULT_FONT: [u8; 80] = [
@@ -59,11 +57,11 @@ struct Chip8Flags {
 }
 
 #[derive(Debug)]
-pub struct Chip8Builder<'a> {
+pub struct Chip8Builder {
     /// ROM
-    rom: Option<&'a [u8]>,
+    rom: Option<Vec<u8>>,
     /// Font sprite
-    font: &'a [u8],
+    font: Option<Vec<u8>>,
     // PRNG Seed
     rng_seed: Option<u64>,
     /// Flags
@@ -88,18 +86,18 @@ pub struct Chip8 {
     /// Memory
     memory: Vec<u8>,
     /// Display: 64x32 pixels 1 bit monochrome stored as RBG24 for SDL compatibility
-    pub display: Vec<u32>,
+    display: Vec<u32>,
     /// Flags
     flags: Chip8Flags,
     /// PRNG Generator
     rng: StdRng,
 }
 
-impl<'a> Chip8Builder<'a> {
-    pub fn new() -> Chip8Builder<'a> {
+impl<'a> Chip8Builder {
+    pub fn new() -> Chip8Builder {
         Chip8Builder {
             rom: None,
-            font: &DEFAULT_FONT[..],
+            font: None,
             rng_seed: None,
             flags: Chip8Flags {
                 quirk_shift: false,
@@ -110,30 +108,30 @@ impl<'a> Chip8Builder<'a> {
         }
     }
 
-    pub fn with_rom<'b: 'a>(&'b mut self, rom: &'b [u8]) -> &'b mut Self {
+    pub fn with_rom(mut self, rom: Vec<u8>) -> Self {
         assert!(rom.len() >= 2, "ROM size must be at least two bytes");
         assert!(rom.len() < 3584, "ROM size must be less then 3584 bytes");
         self.rom = Some(rom);
         self
     }
 
-    pub fn with_font<'b: 'a>(&'b mut self, font: &'b [u8]) -> &'b mut Self {
+    pub fn with_font(mut self, font: Vec<u8>) -> Self {
         assert_eq!(font.len(), 80, "Font sprite must 80 bytes");
-        self.font = font;
+        self.font = Some(font);
         self
     }
 
-    pub fn with_debug<'b>(&'b mut self, debug: bool) -> &'b mut Self {
+    pub fn with_debug(mut self, debug: bool) -> Self {
         self.flags.debug = debug;
         self
     }
 
-    pub fn with_rng_seed<'b>(&'b mut self, seed: u64) -> &'b mut Self {
+    pub fn with_rng_seed<'b>(mut self, seed: u64) -> Self {
         self.rng_seed = Some(seed);
         self
     }
 
-    pub fn with_mode<'b>(&'b mut self, mode: Chip8Mode) -> &'b mut Self {
+    pub fn with_mode<'b>(mut self, mode: Chip8Mode) -> Self {
         match mode {
             Chip8Mode::COSMAC_VIP => {
                 self.flags.quirk_shift = true;
@@ -146,13 +144,18 @@ impl<'a> Chip8Builder<'a> {
     pub fn build(&self) -> Chip8 {
         // Create memory
         let mut memory = vec![0u8; MEMORY_SIZE];
-
+        
         // Copy font to memory
-        (&mut memory[0x050..0x0A0]).copy_from_slice(self.font);
+        let font = match &self.font {
+            Some(font) => &font[..],
+            None => &DEFAULT_FONT[..]
+        };
+        (&mut memory[0x050..0x0A0]).copy_from_slice(font);
 
         // Copy rom to memory
-        let rom = self.rom.expect("");
-        (&mut memory[0x200..(0x200 + rom.len())]).copy_from_slice(rom);
+        let rom = self.rom.as_ref()
+            .expect("A ROM file must be provided");
+        (&mut memory[0x200..(0x200 + rom.len())]).copy_from_slice(&rom[..]);
 
         // Create display buffer
         let display = vec![0u32; SCREEN_WITDH * SCREEN_HEIGHT];
@@ -175,11 +178,16 @@ impl<'a> Chip8Builder<'a> {
             display: display,
             flags: self.flags,
             rng: rng,
-        }
+        }   
     }
 }
 
 impl Chip8 {
+
+    pub fn display(&self) -> &[u8] {
+        bytemuck::cast_slice(&self.display[..])
+    }
+
     pub fn step(&mut self) {
         // Instruction
         let inst = self.read_u16_be(self.pc);
@@ -640,19 +648,6 @@ impl Chip8 {
         self.display[idx] = pxl;
     }
 
-    fn flip_pixel_xy(&mut self, x: u8, y: u8) {
-        let idx = (y as usize) * SCREEN_WITDH + (x as usize);
-        self.flip_pixel_idx(idx);
-    }
-
-    fn flip_pixel_idx(&mut self, idx: usize) {
-        if (self.display[idx] == PIXEL_ON) {
-            self.display[idx] = PIXEL_OFF
-        } else {
-            self.display[idx] = PIXEL_ON
-        }
-    }
-
     fn clear_screen(&mut self, on_off: bool) {
         let pxl = if on_off { PIXEL_ON } else { PIXEL_OFF };
         self.display.iter_mut().for_each(|p| *p = pxl);
@@ -689,7 +684,7 @@ mod tests {
 
     fn setup(rom: &[u8]) -> Chip8 {
         Chip8Builder::new()
-            .with_rom(&rom[..])
+            .with_rom(rom.to_vec())
             .with_rng_seed(310349960114u64)
             .with_debug(true)
             .build()

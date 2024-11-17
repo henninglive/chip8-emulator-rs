@@ -6,14 +6,15 @@
 // * [high-level assembler for the Chip8 virtual machine](https://github.com/JohnEarnest/Octo/blob/gh-pages/js/emulator.js)
 //
 
+use bytemuck::{Pod, Zeroable};
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 const MEMORY_SIZE: usize = 0x1000;
 pub const SCREEN_WITDH: usize = 64;
 pub const SCREEN_HEIGHT: usize = 32;
 
-const PIXEL_ON: u32 = 0xFFFFFFFF;
-const PIXEL_OFF: u32 = 0;
+pub const DEFAULT_BACKGROUND_COLOR: Chip8Color = Chip8Color::new(0, 0,0);
+pub const DEFAULT_FOREGROUND_COLOR: Chip8Color = Chip8Color::new(255, 255, 255);
 
 pub static DEFAULT_FONT: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -34,6 +35,83 @@ pub static DEFAULT_FONT: [u8; 80] = [
     0xF0, 0x80, 0xF0, 0x80, 0x80, // F
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Pod, Zeroable)]
+#[repr(C, packed)]
+pub struct Chip8Color {
+    padding: u8,
+    pub b: u8,
+    pub g: u8,
+    pub r: u8,
+}
+
+impl Chip8Color {
+    pub const fn new(r: u8, g: u8, b: u8) -> Chip8Color{
+        Chip8Color { r, g, b, padding: 0 }
+    }
+}
+
+
+#[derive(Debug)]
+pub struct Chip8Display {
+    /// Display buffer: 64x32 pixels as RBGX8888 for SDL compatibility
+    buffer: Vec<Chip8Color>,
+    /// Display has been updated this cpu cycle
+    dirty: bool,
+    /// Background Color
+    background: Chip8Color,
+    /// Foreground Color
+    foreground: Chip8Color,
+}
+
+impl Chip8Display {
+    fn new(foreground: Chip8Color, background: Chip8Color) -> Chip8Display {
+        Chip8Display {
+           buffer: vec![background; SCREEN_WITDH * SCREEN_HEIGHT],
+           dirty: false,
+           background,
+           foreground
+        }
+    }
+
+    pub fn buffer(&self) -> &[u8] {
+        bytemuck::cast_slice(&self.buffer[..])
+    }
+
+    pub fn dirty(&self) -> bool {
+        self.dirty
+    }
+
+    fn color(&self, on_off: bool) -> Chip8Color {
+        if on_off { self.foreground } else { self.background }
+    }
+
+    fn get_pixel_xy(&self, x: u8, y: u8) -> bool {
+        let idx = (y as usize) * SCREEN_WITDH + (x as usize);
+        self.get_pixel_idx(idx)
+    }
+
+    fn get_pixel_idx(&self, idx: usize) -> bool {
+        self.buffer[idx] == self.foreground
+    }
+
+    fn set_pixel_xy(&mut self, x: u8, y: u8, on_off: bool) {
+        let idx = (y as usize) * SCREEN_WITDH + (x as usize);
+        self.set_pixel_idx(idx, on_off);
+    }
+
+    fn set_pixel_idx(&mut self, idx: usize, on_off: bool) {
+        self.buffer[idx] = self.color(on_off);
+        self.dirty = true;
+    }
+
+    fn clear(&mut self, on_off: bool) {
+        let pxl = self.color(on_off);
+        self.buffer.iter_mut().for_each(|p| *p = pxl);
+        self.dirty = true;
+    }
+}
+
+
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Chip8Mode {
@@ -42,7 +120,6 @@ pub enum Chip8Mode {
     SUPER_CHIP,
 }
 
-//TODO: Bitflags
 #[derive(Clone, Copy, Debug)]
 struct Chip8Flags {
     /// Bitwise shift (8XY6 and 8XYE) quirk: if true VY is copied into VX before shifting (COSMAC VIP)
@@ -62,37 +139,14 @@ pub struct Chip8Builder {
     rom: Option<Vec<u8>>,
     /// Font sprite
     font: Option<Vec<u8>>,
+    /// Background Color
+    background: Option<Chip8Color>,
+    /// Foreground Color
+    foreground: Option<Chip8Color>,
     // PRNG Seed
     rng_seed: Option<u64>,
     /// Flags
     flags: Chip8Flags,
-}
-
-pub struct Chip8 {
-    /// General purpose registers
-    regs: [u8; 16],
-    /// Index register
-    index: u16,
-    /// Program counter
-    pc: u16,
-    /// Call stack
-    stack: [u16; 16],
-    /// Stack pointer
-    sp: u8,
-    /// Delay Timer
-    delay_timer: u8,
-    /// Sound Timer
-    sound_timer: u8,
-    /// Memory
-    memory: Vec<u8>,
-    /// Display: 64x32 pixels 1 bit monochrome stored as RBG24 for SDL compatibility
-    display: Vec<u32>,
-    /// Display has been updated this cpu cycle
-    display_dirty: bool,
-    /// Flags
-    flags: Chip8Flags,
-    /// PRNG Generator
-    rng: StdRng,
 }
 
 impl<'a> Chip8Builder {
@@ -100,6 +154,8 @@ impl<'a> Chip8Builder {
         Chip8Builder {
             rom: None,
             font: None,
+            background: None,
+            foreground: None,
             rng_seed: None,
             flags: Chip8Flags {
                 quirk_shift: false,
@@ -120,6 +176,16 @@ impl<'a> Chip8Builder {
     pub fn with_font(mut self, font: Vec<u8>) -> Self {
         assert_eq!(font.len(), 80, "Font sprite must 80 bytes");
         self.font = Some(font);
+        self
+    }
+
+    pub fn with_foreground(mut self, foreground: Chip8Color) -> Self {
+        self.foreground = Some(foreground);
+        self
+    }
+
+    pub fn with_background(mut self, background: Chip8Color) -> Self {
+        self.background = Some(background);
         self
     }
 
@@ -158,16 +224,18 @@ impl<'a> Chip8Builder {
         let rom = self.rom.as_ref().expect("A ROM file must be provided");
         (&mut memory[0x200..(0x200 + rom.len())]).copy_from_slice(&rom[..]);
 
-        // Create display buffer
-        let display = vec![0u32; SCREEN_WITDH * SCREEN_HEIGHT];
-
         // Pseudo random number generator
         let rng = match self.rng_seed {
             Some(seed) => StdRng::seed_from_u64(seed),
             None => StdRng::from_entropy(),
         };
 
+        // Display colors
+        let background = self.background.unwrap_or(DEFAULT_BACKGROUND_COLOR);
+        let foreground = self.foreground.unwrap_or(DEFAULT_FOREGROUND_COLOR);
+
         Chip8 {
+            display: Chip8Display::new(foreground, background),
             regs: [0u8; 16],
             index: 0,
             pc: 0x200,
@@ -176,23 +244,39 @@ impl<'a> Chip8Builder {
             delay_timer: 0,
             sound_timer: 0,
             memory: memory,
-            display: display,
-            display_dirty: false,
             flags: self.flags,
             rng: rng,
         }
     }
 }
 
+
+pub struct Chip8 {
+    /// General purpose registers
+    regs: [u8; 16],
+    /// Index register
+    index: u16,
+    /// Program counter
+    pc: u16,
+    /// Call stack
+    stack: [u16; 16],
+    /// Stack pointer
+    sp: u8,
+    /// Delay Timer
+    delay_timer: u8,
+    /// Sound Timer
+    sound_timer: u8,
+    /// Memory
+    memory: Vec<u8>,
+    /// Display: 64x32 pixels 1 bit monochrome stored as RBG24 for SDL compatibility
+    display: Chip8Display,
+    /// Flags
+    flags: Chip8Flags,
+    /// PRNG Generator
+    rng: StdRng,
+}
+
 impl Chip8 {
-    pub fn display(&self) -> &[u8] {
-        bytemuck::cast_slice(&self.display[..])
-    }
-
-    pub fn display_dirty(&self) -> bool {
-        self.display_dirty
-    }
-
     pub fn step(&mut self) {
         // Instruction
         let inst = self.read_u16_be(self.pc);
@@ -203,7 +287,7 @@ impl Chip8 {
         let n3 = (0xf0 & inst[1]) >> 4;
         let n4 = 0x0f & inst[1];
 
-        self.display_dirty = false;
+        self.display.dirty = false;
 
         match (n1, n2, n3, n4) {
             // 00E0: Clear screen
@@ -212,8 +296,7 @@ impl Chip8 {
                     println!("0x{:02x}{:02x}: CLEAR", inst[0], inst[1]);
                 }
 
-                self.clear_screen(false);
-                self.display_dirty = true;
+                self.display.clear(false);
                 self.pc += 2;
             }
             // 00EE: Return subroutine from stack
@@ -553,18 +636,17 @@ impl Chip8 {
                         // If sprite bit for column is on
                         if (data & mask) > 0 {
                             // if pixel is on, turn it of and set carry flag
-                            if self.get_pixel_xy(x, y) {
-                                self.set_pixel_xy(x, y, false);
+                            if self.display.get_pixel_xy(x, y) {
+                                self.display.set_pixel_xy(x, y, false);
                                 self.regs[0xF] = 1;
                             } else {
                                 // else turn it on
-                                self.set_pixel_xy(x, y, true);
+                                self.display.set_pixel_xy(x, y, true);
                             }
                         }
                     }
                 }
 
-                self.display_dirty = true;
                 self.pc += 2;
             }
             // FX55: Store - Store of each register from V0-VX at memory addresses starting at I until I + X
@@ -607,7 +689,7 @@ impl Chip8 {
             ),
         }
     }
-
+    
     pub fn step_timer(&mut self) {
         if self.delay_timer > 0 {
             self.delay_timer -= 1;
@@ -616,6 +698,10 @@ impl Chip8 {
         if self.sound_timer > 0 {
             self.sound_timer -= 1;
         }
+    }
+
+    pub fn display(&self) -> &Chip8Display {
+        &self.display
     }
 
     fn read_u8(&self, addr: u16) -> u8 {
@@ -636,30 +722,6 @@ impl Chip8 {
     fn write_u16_be(&mut self, addr: u16, data: [u8; 2]) {
         assert!(addr % 2 == 0, "Address must 2 byte aligned");
         (&mut self.memory[(addr as usize)..(addr as usize + 2)]).copy_from_slice(&data[..]);
-    }
-
-    fn get_pixel_xy(&self, x: u8, y: u8) -> bool {
-        let idx = (y as usize) * SCREEN_WITDH + (x as usize);
-        self.get_pixel_idx(idx)
-    }
-
-    fn get_pixel_idx(&self, idx: usize) -> bool {
-        self.display[idx] > 0
-    }
-
-    fn set_pixel_xy(&mut self, x: u8, y: u8, on_off: bool) {
-        let idx = (y as usize) * SCREEN_WITDH + (x as usize);
-        self.set_pixel_idx(idx, on_off);
-    }
-
-    fn set_pixel_idx(&mut self, idx: usize, on_off: bool) {
-        let pxl = if on_off { PIXEL_ON } else { PIXEL_OFF };
-        self.display[idx] = pxl;
-    }
-
-    fn clear_screen(&mut self, on_off: bool) {
-        let pxl = if on_off { PIXEL_ON } else { PIXEL_OFF };
-        self.display.iter_mut().for_each(|p| *p = pxl);
     }
 }
 
@@ -688,13 +750,12 @@ mod tests {
     }
 
     fn assert_display<F: Fn(usize, usize) -> bool>(chip: &Chip8, predicate: F) {
-        // Assert: Screen clear
         for y in 0..SCREEN_HEIGHT {
             for x in 0..SCREEN_WITDH {
                 let expected = predicate(x, y);
                 assert_eq!(
                     expected,
-                    chip.get_pixel_xy(x as u8, y as u8),
+                    chip.display.get_pixel_xy(x as u8, y as u8),
                     "pxl at x:{} and y:{} should be {}",
                     x,
                     y,
@@ -746,7 +807,7 @@ mod tests {
         let mut chip = setup(&[0x00, 0xe0]);
 
         // Enable all pixels
-        chip.clear_screen(true);
+        chip.display.clear(true);
 
         // Act: Step CPU Instruction
         chip.step();
@@ -755,7 +816,7 @@ mod tests {
         assert_regs(&chip, |_| 0x0);
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
-        assert_eq!(chip.display_dirty, true);
+        assert_eq!(chip.display.dirty, true);
         assert_stack(&chip, &[]);
 
         // Assert: Screen clear
@@ -1520,7 +1581,7 @@ mod tests {
         chip.regs[0x1] = 0x1;
         chip.index = 0x400;
         chip.memory[0x400] = 0x80;
-        chip.clear_screen(true);
+        chip.display.clear(true);
 
         // Act: Step CPU Instruction
         chip.step();

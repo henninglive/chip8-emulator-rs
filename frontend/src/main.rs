@@ -1,9 +1,15 @@
-use std::{path::PathBuf, time::{Duration, Instant}};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 use chip_8_core::{Chip8Builder, SCREEN_HEIGHT, SCREEN_WITDH};
 use clap::Parser;
-use sdl2::{event::Event, keyboard::Keycode, pixels::{Color, PixelFormatEnum}};
-
+use sdl2::{
+    event::Event,
+    keyboard::Keycode,
+    pixels::{Color, PixelFormatEnum},
+};
 
 /// CHIP-8 Emulator
 #[derive(Parser, Debug)]
@@ -39,13 +45,11 @@ fn main() {
 
     let mut builder = Chip8Builder::new();
 
-    let rom_data = std::fs::read(args.rom)
-        .expect("Failed to read ROM file");
+    let rom_data = std::fs::read(args.rom).expect("Failed to read ROM file");
     builder = builder.with_rom(rom_data);
 
     if let Some(font) = args.font {
-        let font_data: Vec<u8> = std::fs::read(font)
-            .expect("Failed to read font file");
+        let font_data: Vec<u8> = std::fs::read(font).expect("Failed to read font file");
         builder = builder.with_font(font_data);
     }
 
@@ -70,22 +74,26 @@ fn main() {
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
 
-    let window = video_subsystem.window("chip8-emulator", 64 * args.scale, 32 * args.scale)
+    let window = video_subsystem
+        .window("chip8-emulator", 64 * args.scale, 32 * args.scale)
         .position_centered()
         .build()
         .unwrap();
 
     let mut canvas = window.into_canvas().build().unwrap();
-    
+
     canvas.set_draw_color(Color::RGB(0, 0, 0));
     canvas.clear();
     canvas.present();
 
     let texture_creator = canvas.texture_creator();
     let mut texture = texture_creator
-        .create_texture_streaming(PixelFormatEnum::RGBX8888, SCREEN_WITDH as u32, SCREEN_HEIGHT as u32)
+        .create_texture_streaming(
+            PixelFormatEnum::RGBX8888,
+            SCREEN_WITDH as u32,
+            SCREEN_HEIGHT as u32,
+        )
         .unwrap();
-
 
     let mut event_pump = sdl_context.event_pump().unwrap();
 
@@ -98,17 +106,20 @@ fn main() {
 
         for event in event_pump.poll_iter() {
             match event {
-                Event::Quit {..} |
-                Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
-                    break 'running
-                },
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => break 'running,
                 _ => {}
             }
         }
 
         chip.step();
 
-        texture.update(None, chip.display(), SCREEN_WITDH * 4 ).unwrap();
+        texture
+            .update(None, chip.display(), SCREEN_WITDH * 4)
+            .unwrap();
         canvas.copy(&texture, None, None).unwrap();
         canvas.present();
     }

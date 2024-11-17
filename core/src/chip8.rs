@@ -1,10 +1,10 @@
-// CHIP-8 emulator 
+// CHIP-8 emulator
 //
 // Useful links:
 // * [Guide to making a CHIP-8 emulator](https://tobiasvl.github.io/blog/write-a-chip-8-emulator/)
 // * [Building a CHIP-8 Emulator](https://austinmorlan.com/posts/chip8_emulator/)
 // * [high-level assembler for the Chip8 virtual machine](https://github.com/JohnEarnest/Octo/blob/gh-pages/js/emulator.js)
-// 
+//
 
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
@@ -144,17 +144,16 @@ impl<'a> Chip8Builder {
     pub fn build(&self) -> Chip8 {
         // Create memory
         let mut memory = vec![0u8; MEMORY_SIZE];
-        
+
         // Copy font to memory
         let font = match &self.font {
             Some(font) => &font[..],
-            None => &DEFAULT_FONT[..]
+            None => &DEFAULT_FONT[..],
         };
         (&mut memory[0x050..0x0A0]).copy_from_slice(font);
 
         // Copy rom to memory
-        let rom = self.rom.as_ref()
-            .expect("A ROM file must be provided");
+        let rom = self.rom.as_ref().expect("A ROM file must be provided");
         (&mut memory[0x200..(0x200 + rom.len())]).copy_from_slice(&rom[..]);
 
         // Create display buffer
@@ -178,12 +177,11 @@ impl<'a> Chip8Builder {
             display: display,
             flags: self.flags,
             rng: rng,
-        }   
+        }
     }
 }
 
 impl Chip8 {
-
     pub fn display(&self) -> &[u8] {
         bytemuck::cast_slice(&self.display[..])
     }
@@ -522,12 +520,12 @@ impl Chip8 {
                 // Reset carry flag
                 self.regs[0xF] = 0;
 
-                // Draw N rows 
+                // Draw N rows
                 for row in 0..n4 {
-                    let y =  oy + row;
+                    let y = oy + row;
                     if y >= SCREEN_HEIGHT as u8 {
                         break;
-                    } 
+                    }
 
                     // Read row(8-bit) of sprite data from memory
                     let addr = self.index + row as u16;
@@ -537,7 +535,7 @@ impl Chip8 {
                         let x = ox + column;
                         if x >= SCREEN_WITDH as u8 {
                             break;
-                        } 
+                        }
 
                         // bitmask git single bit
                         let mask = 1 << (7 - column);
@@ -545,11 +543,11 @@ impl Chip8 {
                         // If sprite bit for column is on
                         if (data & mask) > 0 {
                             // if pixel is on, turn it of and set carry flag
-                            if self.get_pixel_xy(x, y ) {
+                            if self.get_pixel_xy(x, y) {
                                 self.set_pixel_xy(x, y, false);
                                 self.regs[0xF] = 1;
                             } else {
-                                // else turn it on 
+                                // else turn it on
                                 self.set_pixel_xy(x, y, true);
                             }
                         }
@@ -1354,15 +1352,7 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(
-            &chip,
-            &[
-                (0x2, 0x22),
-                (0x4, 0x44),
-                (0xA, 0xAA),
-                (0xF, 0xFF),
-            ],
-        );
+        assert_regs(&chip, &[(0x2, 0x22), (0x4, 0x44), (0xA, 0xAA), (0xF, 0xFF)]);
         assert_eq!(chip.index, 0x400);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1389,15 +1379,7 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(
-            &chip,
-            &[
-                (0x2, 0x22),
-                (0x4, 0x44),
-                (0xA, 0xAA),
-                (0xF, 0xFF),
-            ],
-        );
+        assert_regs(&chip, &[(0x2, 0x22), (0x4, 0x44), (0xA, 0xAA), (0xF, 0xFF)]);
         assert_eq!(chip.index, 0x40F);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1424,15 +1406,7 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(
-            &chip,
-            &[
-                (0x2, 0x22),
-                (0x4, 0x44),
-                (0xA, 0xAA),
-                (0xF, 0xFF),
-            ],
-        );
+        assert_regs(&chip, &[(0x2, 0x22), (0x4, 0x44), (0xA, 0xAA), (0xF, 0xFF)]);
         assert_eq!(chip.index, 0x40F);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);
@@ -1452,15 +1426,7 @@ mod tests {
         chip.step();
 
         // Assert: CPU State
-        assert_regs(
-            &chip,
-            &[
-                (0x2, 0x22),
-                (0x4, 0x44),
-                (0xA, 0xAA),
-                (0xF, 0xFF),
-            ],
-        );
+        assert_regs(&chip, &[(0x2, 0x22), (0x4, 0x44), (0xA, 0xAA), (0xF, 0xFF)]);
         assert_eq!(chip.index, 0x400);
         assert_eq!(chip.pc, 0x202);
         assert_stack(&chip, &[]);

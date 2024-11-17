@@ -87,6 +87,8 @@ pub struct Chip8 {
     memory: Vec<u8>,
     /// Display: 64x32 pixels 1 bit monochrome stored as RBG24 for SDL compatibility
     display: Vec<u32>,
+    /// Display has been updated this cpu cycle
+    display_dirty: bool,
     /// Flags
     flags: Chip8Flags,
     /// PRNG Generator
@@ -175,6 +177,7 @@ impl<'a> Chip8Builder {
             sound_timer: 0,
             memory: memory,
             display: display,
+            display_dirty: false,
             flags: self.flags,
             rng: rng,
         }
@@ -184,6 +187,10 @@ impl<'a> Chip8Builder {
 impl Chip8 {
     pub fn display(&self) -> &[u8] {
         bytemuck::cast_slice(&self.display[..])
+    }
+
+    pub fn display_dirty(&self) -> bool {
+        self.display_dirty
     }
 
     pub fn step(&mut self) {
@@ -196,6 +203,8 @@ impl Chip8 {
         let n3 = (0xf0 & inst[1]) >> 4;
         let n4 = 0x0f & inst[1];
 
+        self.display_dirty = false;
+
         match (n1, n2, n3, n4) {
             // 00E0: Clear screen
             (0x0, 0x0, 0xe, 0x0) => {
@@ -204,6 +213,7 @@ impl Chip8 {
                 }
 
                 self.clear_screen(false);
+                self.display_dirty = true;
                 self.pc += 2;
             }
             // 00EE: Return subroutine from stack
@@ -554,6 +564,7 @@ impl Chip8 {
                     }
                 }
 
+                self.display_dirty = true;
                 self.pc += 2;
             }
             // FX55: Store - Store of each register from V0-VX at memory addresses starting at I until I + X
@@ -731,6 +742,7 @@ mod tests {
         assert_regs(&chip, &[]);
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x202);
+        assert_eq!(chip.display_dirty, true);
         assert_stack(&chip, &[]);
 
         // Assert: Screen clear

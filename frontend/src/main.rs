@@ -97,13 +97,26 @@ fn main() {
 
     let mut event_pump = sdl_context.event_pump().unwrap();
 
-    let delta = Duration::new(0, 1_000_000_000u32 / args.ips);
-    let mut next_frame = Instant::now();
+    let delta_update = Duration::new(0, 1_000_000_000u32 / args.ips);
+    let mut next_update = Instant::now();
+    let mut next_sec = next_update;
 
     'running: loop {
-        sleep_until(next_frame);
-        next_frame += delta;
+        // Wait until next update
+        let now = Instant::now();
+        if let Some(delay) = next_update.checked_duration_since(now) {
+            ::std::thread::sleep(delay);
+        }
+        next_update += delta_update;
 
+        // If one second has passed then step chip8 timers
+        let now = Instant::now();
+        if let Some(overdue) = now.checked_duration_since(next_sec) {
+            next_sec += overdue + Duration::from_secs(1);
+            chip.step_timer();
+        }
+
+        // Process events
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit { .. }
@@ -115,20 +128,16 @@ fn main() {
             }
         }
 
+        // Execute one CHIP-8 instruction
         chip.step();
 
-        texture
-            .update(None, chip.display(), SCREEN_WITDH * 4)
-            .unwrap();
-        canvas.copy(&texture, None, None).unwrap();
-        canvas.present();
-    }
-}
-
-pub fn sleep_until(deadline: Instant) {
-    let now = Instant::now();
-
-    if let Some(delay) = deadline.checked_duration_since(now) {
-        ::std::thread::sleep(delay);
+        // If display buffer was changed then draw changes on canvas
+        if chip.display_dirty() {
+            texture
+                .update(None, chip.display(), SCREEN_WITDH * 4)
+                .unwrap();
+            canvas.copy(&texture, None, None).unwrap();
+            canvas.present();
+        }
     }
 }

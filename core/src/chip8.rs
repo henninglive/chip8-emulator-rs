@@ -524,8 +524,8 @@ impl Chip8 {
                 }
 
                 // Origin where we start to draw
-                let oy: u8 = self.regs[n3 as usize] % SCREEN_HEIGHT as u8;
                 let ox: u8 = self.regs[n2 as usize] % SCREEN_WITDH as u8;
+                let oy: u8 = self.regs[n3 as usize] % SCREEN_HEIGHT as u8;
 
                 // Reset carry flag
                 self.regs[0xF] = 0;
@@ -691,6 +691,23 @@ mod tests {
         }
     }
 
+    fn assert_display<F: Fn(usize, usize) -> bool>(chip: &Chip8, predicate: F) {
+        // Assert: Screen clear
+        for y in 0..SCREEN_HEIGHT {
+            for x in 0..SCREEN_WITDH {
+                let expected = predicate(x, y);
+                assert_eq!(
+                    expected,
+                    chip.get_pixel_xy(x as u8, y as u8),
+                    "pxl at x:{} and y:{} should be {}",
+                    x,
+                    y,
+                    expected
+                );
+            }
+        }
+    }
+
     fn setup(rom: &[u8]) -> Chip8 {
         Chip8Builder::new()
             .with_rom(rom.to_vec())
@@ -746,16 +763,7 @@ mod tests {
         assert_stack(&chip, &[]);
 
         // Assert: Screen clear
-        for y in 0..SCREEN_HEIGHT {
-            for x in 0..SCREEN_WITDH {
-                assert!(
-                    !chip.get_pixel_xy(x as u8, y as u8),
-                    "pxl at x:{} and y:{} should be off",
-                    x,
-                    y
-                );
-            }
-        }
+        assert_display(&chip, |_, _| false);
     }
 
     #[test]
@@ -1348,6 +1356,77 @@ mod tests {
         assert_eq!(chip.index, 0);
         assert_eq!(chip.pc, 0x208);
         assert_stack(&chip, &[]);
+    }
+
+    #[test]
+    fn test_display_1() {
+
+        // Arrange: Setup chip8 emulator
+        let mut chip = setup(&[0xD0, 0x00]);
+        chip.index = 0x400;
+        chip.memory[0x400] = 0xF;
+
+        // Act: Step CPU Instruction
+        chip.step();
+
+        // Assert: CPU State
+        assert_regs(&chip, &[]);
+        assert_eq!(chip.index, 0x400);
+        assert_eq!(chip.pc, 0x202);
+        assert_stack(&chip, &[]);
+
+        // Assert: Screen clear
+        assert_display(&chip, |_, _| false);
+    }
+
+    #[test]
+    fn test_display_2() {
+        // Arrange: Setup chip8 emulator
+        let mut chip = setup(&[0xD0, 0x0F]);
+        chip.index = 0x400;
+        for o in 0..=0xf {
+            chip.memory[0x400 + o] = 0xFF;
+        }
+
+        // Act: Step CPU Instruction
+        chip.step();
+
+        // Assert: CPU State
+        assert_regs(&chip, &[]);
+        assert_eq!(chip.index, 0x400);
+        assert_eq!(chip.pc, 0x202);
+        assert_stack(&chip, &[]);
+
+        // Assert: Screen clear
+        assert_display(&chip, |x, y| match (x, y) {
+            (x, y) if x < 8 && y < 15 => true,
+            _ => false,
+        });
+    }
+
+    #[test]
+    fn test_display_3() {
+        // Arrange: Setup chip8 emulator
+        let mut chip = setup(&[0xD1, 0x11]);
+        chip.regs[0x1] = 0x1;
+        chip.index = 0x400;
+        chip.memory[0x400] = 0x80;
+        chip.clear_screen(true);
+
+        // Act: Step CPU Instruction
+        chip.step();
+
+        // Assert: CPU State
+        assert_regs(&chip, &[(0x1, 0x1), (0xF, 0x1)]);
+        assert_eq!(chip.index, 0x400);
+        assert_eq!(chip.pc, 0x202);
+        assert_stack(&chip, &[]);
+
+        // Assert: Screen clear
+        assert_display(&chip, |x, y| match (x, y) {
+            (x, y) if x == 1 && y == 1 => false,
+            _ => true,
+        });
     }
 
     #[test]

@@ -6,15 +6,13 @@
 // * [high-level assembler for the Chip8 virtual machine](https://github.com/JohnEarnest/Octo/blob/gh-pages/js/emulator.js)
 //
 
-use bytemuck::{Pod, Zeroable};
 use rand::{rngs::StdRng, RngCore, SeedableRng};
+
+use crate::{Chip8Color, DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR};
 
 const MEMORY_SIZE: usize = 0x1000;
 pub const SCREEN_WITDH: usize = 64;
 pub const SCREEN_HEIGHT: usize = 32;
-
-pub const DEFAULT_BACKGROUND_COLOR: Chip8Color = Chip8Color::new(0, 0,0);
-pub const DEFAULT_FOREGROUND_COLOR: Chip8Color = Chip8Color::new(255, 255, 255);
 
 pub static DEFAULT_FONT: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -34,21 +32,6 @@ pub static DEFAULT_FONT: [u8; 80] = [
     0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
     0xF0, 0x80, 0xF0, 0x80, 0x80, // F
 ];
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Pod, Zeroable)]
-#[repr(C, packed)]
-pub struct Chip8Color {
-    padding: u8,
-    pub b: u8,
-    pub g: u8,
-    pub r: u8,
-}
-
-impl Chip8Color {
-    pub const fn new(r: u8, g: u8, b: u8) -> Chip8Color{
-        Chip8Color { r, g, b, padding: 0 }
-    }
-}
 
 
 #[derive(Debug)]

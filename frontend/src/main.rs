@@ -1,6 +1,6 @@
 use std::{path::PathBuf, time::{Duration, Instant}};
 
-use chip_8_core::{Chip8Builder, SCREEN_HEIGHT, SCREEN_WITDH};
+use chip_8_core::{Chip8Builder, Chip8Color, SCREEN_HEIGHT, SCREEN_WITDH};
 use clap::Parser;
 use sdl2::{
     event::Event,
@@ -19,6 +19,14 @@ struct Args {
     /// Filepath to font file
     #[clap(long)]
     font: Option<PathBuf>,
+
+    /// Background Color as HEX 0xAABBFF [default: 0x000000]
+    #[clap(long)]
+    background: Option<Chip8Color>,
+
+    /// Foreground Color as HEX 0xAABBFF [default: 0xFFFFFF]
+    #[clap(long)]
+    foreground: Option<Chip8Color>,
 
     /// Display scaling factor
     #[clap(short, long, default_value_t = 10)]
@@ -48,6 +56,14 @@ fn main() {
     if let Some(font) = args.font {
         let font_data: Vec<u8> = std::fs::read(font).expect("Failed to read font file");
         builder = builder.with_font(font_data);
+    }
+
+    if let Some(foreground) = args.foreground {
+        builder = builder.with_foreground(foreground);
+    }
+
+    if let Some(background) = args.background {
+        builder = builder.with_background(background);
     }
 
     if let Some(seed) = args.seed {

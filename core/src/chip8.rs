@@ -35,7 +35,6 @@ pub static DEFAULT_FONT: [u8; 80] = [
     0xF0, 0x80, 0xF0, 0x80, 0x80, // F
 ];
 
-
 #[derive(Debug)]
 pub struct Chip8Display {
     /// Display buffer: 64x32 pixels as RBGX8888 for SDL compatibility
@@ -51,10 +50,10 @@ pub struct Chip8Display {
 impl Chip8Display {
     fn new(foreground: Chip8Color, background: Chip8Color) -> Chip8Display {
         Chip8Display {
-           buffer: vec![background; SCREEN_WITDH * SCREEN_HEIGHT],
-           dirty: false,
-           background,
-           foreground
+            buffer: vec![background; SCREEN_WITDH * SCREEN_HEIGHT],
+            dirty: false,
+            background,
+            foreground,
         }
     }
 
@@ -67,7 +66,11 @@ impl Chip8Display {
     }
 
     fn color(&self, on_off: bool) -> Chip8Color {
-        if on_off { self.foreground } else { self.background }
+        if on_off {
+            self.foreground
+        } else {
+            self.background
+        }
     }
 
     fn get_pixel_xy(&self, x: u8, y: u8) -> bool {
@@ -95,7 +98,6 @@ impl Chip8Display {
         self.dirty = true;
     }
 }
-
 
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -203,7 +205,7 @@ impl<'a> Chip8Builder {
             Some(font) => &font[..],
             None => &DEFAULT_FONT[..],
         };
-        (&mut memory[FONT_MEMORY_START..(FONT_MEMORY_START+80)]).copy_from_slice(font);
+        (&mut memory[FONT_MEMORY_START..(FONT_MEMORY_START + 80)]).copy_from_slice(font);
 
         // Copy rom to memory
         let rom = self.rom.as_ref().expect("A ROM file must be provided");
@@ -229,12 +231,12 @@ impl<'a> Chip8Builder {
             delay_timer: 0,
             sound_timer: 0,
             memory: memory,
+            input: 0,
             flags: self.flags,
             rng: rng,
         }
     }
 }
-
 
 pub struct Chip8 {
     /// General purpose registers
@@ -251,6 +253,8 @@ pub struct Chip8 {
     delay_timer: u8,
     /// Sound Timer
     sound_timer: u8,
+    /// Keyboard input
+    input: u16,
     /// Memory
     memory: Vec<u8>,
     /// Display: 64x32 pixels 1 bit monochrome stored as RBG24 for SDL compatibility
@@ -262,6 +266,10 @@ pub struct Chip8 {
 }
 
 impl Chip8 {
+    pub fn set_input(&mut self, input: u16) {
+        self.input = input;
+    }
+
     pub fn step(&mut self) {
         // Instruction
         let inst = self.read_u16_be(self.pc);
@@ -294,7 +302,6 @@ impl Chip8 {
                 assert!(self.sp > 0, "Return called when stack is empty");
                 self.sp -= 1;
                 let prev = self.stack[self.sp as usize];
-                assert!(prev % 2 == 0, "Program counter must be 2 byte aligned");
                 self.pc = prev;
             }
             // 1NNN: Jump to memory location NNN
@@ -311,7 +318,6 @@ impl Chip8 {
 
                 // Set program counter to addr in Instruction
                 let pc = u16::from_be_bytes(addr);
-                assert!(pc % 2 == 0, "Program counter must be 2 byte aligned");
                 self.pc = pc;
             }
             // 2NNN: Call subroutine at memory location NNN
@@ -565,7 +571,6 @@ impl Chip8 {
 
                 // Set program counter to addr in Instruction
                 let pc = u16::from_be_bytes(addr) + offset as u16;
-                assert!(pc % 2 == 0, "Program counter must be 2 byte aligned");
                 self.pc = pc;
             }
             // CXNN: Random - generates a random number and AND it with the value NN, and puts the result in VX
@@ -634,28 +639,79 @@ impl Chip8 {
 
                 self.pc += 2;
             }
+            // EX9E: Skip if key - skip instruction if key VX is press
+            (0xE, _, 0x9, 0xE) => {
+                if self.flags.debug {
+                    println!("0x{:02x}{:02x}: SKIP KEY V{:x}", inst[0], inst[1], n2,);
+                }
+
+                let x = self.regs[n2 as usize];
+                let key = 1u16 << x;
+                if key & self.input > 0 {
+                    self.pc += 4;
+                } else {
+                    self.pc += 2;
+                }
+            }
+            // EX9E: Skip if key - skip instruction if key VX is not press
+            (0xE, _, 0xA, 0x1) => {
+                if self.flags.debug {
+                    println!("0x{:02x}{:02x}: SKIP KEY !V{:x}", inst[0], inst[1], n2,);
+                }
+
+                let x = self.regs[n2 as usize];
+                let key = 1u16 << x;
+                if key & self.input > 0 {
+                    self.pc += 2;
+                } else {
+                    self.pc += 4;
+                }
+            }
+            // FX0A: Get key - Wait until key VX is press
+            (0xF, _, 0x0, 0xA) => {
+                if self.flags.debug {
+                    println!("0x{:02x}{:02x}: KEY V{:x}", inst[0], inst[1], n2,);
+                }
+
+                let x = self.regs[n2 as usize];
+                let key = 1u16 << x;
+                if key & self.input > 0 {
+                    self.pc += 2;
+                }
+            }
+            // FX1E: Add to index - Add the value in VX to i
+            (0xF, _, 0x1, 0xE) => {
+                if self.flags.debug {
+                    println!("0x{:02x}{:02x}: Add I V{:x}", inst[0], inst[1], n2,);
+                }
+
+                //TODO: Add quirk: set carry
+                let x = self.regs[n2 as usize];
+                self.index = self.index.wrapping_add(x as u16);
+                self.pc += 2;
+            }
             // FX29: Font character - The index register I is set to the address of the hexadecimal character in VX.
             (0xF, _, 0x2, 0x9) => {
                 if self.flags.debug {
                     println!("0x{:02x}{:02x}: FONT V{:x}", inst[0], inst[1], n2,);
                 }
 
-                let x = self.regs[n2 as usize]; 
-                self.index = FONT_MEMORY_START as u16 + x as u16 * 5; 
+                let x = self.regs[n2 as usize];
+                self.index = FONT_MEMORY_START as u16 + x as u16 * 5;
 
                 self.pc += 2;
             }
-            // FX33: Binary-coded decimal conversion - Convert the number in VX to 
+            // FX33: Binary-coded decimal conversion - Convert the number in VX to
             // decimal digits and store these digits in memory at the address in the I register
             (0xF, _, 0x3, 0x3) => {
                 if self.flags.debug {
                     println!("0x{:02x}{:02x}: BCD V{:x}", inst[0], inst[1], n2,);
                 }
 
-                let mut rem = self.regs[n2 as usize]; 
+                let mut rem = self.regs[n2 as usize];
                 self.write_u8(self.index, rem / 100);
                 rem = rem % 100;
-                self.write_u8(self.index + 1, rem / 10);            
+                self.write_u8(self.index + 1, rem / 10);
                 self.write_u8(self.index + 2, rem % 10);
 
                 self.pc += 2;
@@ -700,7 +756,7 @@ impl Chip8 {
             ),
         }
     }
-    
+
     pub fn step_timer(&mut self) {
         if self.delay_timer > 0 {
             self.delay_timer -= 1;
@@ -720,7 +776,6 @@ impl Chip8 {
     }
 
     fn read_u16_be(&self, addr: u16) -> [u8; 2] {
-        assert!(addr % 2 == 0, "Address must 2 byte aligned");
         let mut buffer = [0u8; 2];
         buffer.copy_from_slice(&&self.memory[(addr as usize)..(addr as usize + 2)]);
         buffer
@@ -728,11 +783,6 @@ impl Chip8 {
 
     fn write_u8(&mut self, addr: u16, data: u8) {
         self.memory[addr as usize] = data;
-    }
-
-    fn write_u16_be(&mut self, addr: u16, data: [u8; 2]) {
-        assert!(addr % 2 == 0, "Address must 2 byte aligned");
-        (&mut self.memory[(addr as usize)..(addr as usize + 2)]).copy_from_slice(&data[..]);
     }
 }
 

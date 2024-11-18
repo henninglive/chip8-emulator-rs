@@ -1,10 +1,13 @@
-use std::{path::PathBuf, time::{Duration, Instant}};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 use chip_8_core::{Chip8Builder, Chip8Color, SCREEN_HEIGHT, SCREEN_WITDH};
 use clap::Parser;
 use sdl2::{
     event::Event,
-    keyboard::Keycode,
+    keyboard::{Keycode, Scancode},
     pixels::{Color, PixelFormatEnum},
 };
 
@@ -95,7 +98,7 @@ fn main() {
 
     let mut canvas = window.into_canvas().build().unwrap();
 
-    //TODO: use background color    
+    //TODO: use background color
     canvas.set_draw_color(Color::RGB(0, 0, 0));
     canvas.clear();
     canvas.present();
@@ -131,19 +134,52 @@ fn main() {
         }
 
         // Process events
+        let mut keypress = false;
         for event in event_pump.poll_iter() {
             match event {
-                Event::Quit { .. } | Event::KeyDown {
+                Event::Quit { .. }
+                | Event::KeyDown {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => break 'running,
+                Event::KeyDown { repeat: false,  .. } | Event::KeyUp { repeat: false, .. } => keypress = true,
                 _ => {}
             }
         }
 
+        if keypress {
+            let input = event_pump
+                .keyboard_state()
+                .scancodes()
+                .fold(0u16, |input, key| input | match key {
+                    (Scancode::Num1, true) => 1 << 15,
+                    (Scancode::Num2, true) => 1 << 14,
+                    (Scancode::Num3, true) => 1 << 13,
+                    (Scancode::Num4, true) => 1 << 12,
+                    (Scancode::Q, true) => 1 << 11,
+                    (Scancode::W, true) => 1 << 10,
+                    (Scancode::E, true) => 1 << 9,
+                    (Scancode::R, true) => 1 << 8,
+                    (Scancode::A, true) => 1 << 7,
+                    (Scancode::S, true) => 1 << 6,
+                    (Scancode::D, true) => 1 << 5,
+                    (Scancode::F, true) => 1 << 4,
+                    (Scancode::Z, true) => 1 << 3,
+                    (Scancode::X, true) => 1 << 2,
+                    (Scancode::C, true) => 1 << 1,
+                    (Scancode::V, true) => 1,
+                    (Scancode::Up, true) => 1 << 10,
+                    (Scancode::Left, true) => 1 << 7,
+                    (Scancode::Right, true) => 1 << 5,
+                    (Scancode::Down, true) => 1 << 6,
+                    _ => 0u16
+                });
+            chip.set_input(input);
+        }
+
         // Execute one CHIP-8 instruction
         chip.step();
-        
+
         // If display buffer was changed then draw changes on canvas
         let display = chip.display();
         if display.dirty() {

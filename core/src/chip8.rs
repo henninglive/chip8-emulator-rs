@@ -4,7 +4,7 @@
 // * [Guide to making a CHIP-8 emulator](https://tobiasvl.github.io/blog/write-a-chip-8-emulator/)
 // * [Building a CHIP-8 Emulator](https://austinmorlan.com/posts/chip8_emulator/)
 // * [high-level assembler for the Chip8 virtual machine](https://github.com/JohnEarnest/Octo/blob/gh-pages/js/emulator.js)
-//
+// * [CHIP-8 extensions and compatibility](https://chip-8.github.io/extensions/)
 
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 

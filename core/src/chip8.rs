@@ -11,6 +11,8 @@ use rand::{rngs::StdRng, RngCore, SeedableRng};
 use crate::{Chip8Color, DEFAULT_BACKGROUND_COLOR, DEFAULT_FOREGROUND_COLOR};
 
 const MEMORY_SIZE: usize = 0x1000;
+const FONT_MEMORY_START: usize = 0x050;
+
 pub const SCREEN_WITDH: usize = 64;
 pub const SCREEN_HEIGHT: usize = 32;
 
@@ -201,7 +203,7 @@ impl<'a> Chip8Builder {
             Some(font) => &font[..],
             None => &DEFAULT_FONT[..],
         };
-        (&mut memory[0x050..0x0A0]).copy_from_slice(font);
+        (&mut memory[FONT_MEMORY_START..(FONT_MEMORY_START+80)]).copy_from_slice(font);
 
         // Copy rom to memory
         let rom = self.rom.as_ref().expect("A ROM file must be provided");
@@ -629,6 +631,32 @@ impl Chip8 {
                         }
                     }
                 }
+
+                self.pc += 2;
+            }
+            // FX29: Font character - The index register I is set to the address of the hexadecimal character in VX.
+            (0xF, _, 0x2, 0x9) => {
+                if self.flags.debug {
+                    println!("0x{:02x}{:02x}: FONT V{:x}", inst[0], inst[1], n2,);
+                }
+
+                let x = self.regs[n2 as usize]; 
+                self.index = FONT_MEMORY_START as u16 + x as u16 * 5; 
+
+                self.pc += 2;
+            }
+            // FX33: Binary-coded decimal conversion - Convert the number in VX to 
+            // decimal digits and store these digits in memory at the address in the I register
+            (0xF, _, 0x3, 0x3) => {
+                if self.flags.debug {
+                    println!("0x{:02x}{:02x}: BCD V{:x}", inst[0], inst[1], n2,);
+                }
+
+                let mut rem = self.regs[n2 as usize]; 
+                self.write_u8(self.index, rem / 100);
+                rem = rem % 100;
+                self.write_u8(self.index + 1, rem / 10);            
+                self.write_u8(self.index + 2, rem % 10);
 
                 self.pc += 2;
             }
